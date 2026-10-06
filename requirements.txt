@@ -1,0 +1,4 @@
+# PDF pipeline and tests. Python 3.10+; tested with 3.12.
+PyMuPDF>=1.26,<1.29
+sentence-transformers>=5.1,<7
+pytest>=8,<10
