@@ -29,13 +29,14 @@ def retrieve(question: str, n_results: int = 3,
 
 if __name__ == "__main__":
     test_questions = [
-        "What is RAGAS?",
-        "How is faithfulness measured?",
-        "What datasets were used for evaluation?"
+        "What does RAGAS provide to developers of RAG systems, and in what settings does it operate?"
+       # "What is RAGAS?",
+       # "How is faithfulness measured?",
+       # "What datasets were used for evaluation?"
     ]
     for question in test_questions:
         print(f"\nQuestion: {question}")
         print("-" * 50)
-        chunks = retrieve(question, n_results=2)
+        chunks = retrieve(question, n_results=5)
         for i, chunk in enumerate(chunks):
             print(f"Chunk {i+1}: {chunk[:200]}")
