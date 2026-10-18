@@ -1,0 +1,17 @@
+# Core RAG pipeline
+chromadb
+langchain
+langchain-ollama
+langchain-huggingface
+langchain-community
+sentence-transformers
+
+# Evaluation
+ragas
+datasets
+
+# Frontend
+streamlit
+
+# Utilities
+python-dotenv
