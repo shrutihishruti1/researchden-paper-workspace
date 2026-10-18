@@ -23,14 +23,6 @@ from langchain_ollama import ChatOllama
 
 load_dotenv(find_dotenv())
 
-# WHY strictness=1: RAGAS defaults to generating 3 candidate questions internally.
-# Free-tier LLMs (including Groq free) don't support n>1 candidates — causes error.
-
-
-
-
-# --- OLD ---
-# from langchain_mistralai import ChatMistralAI
 
 def get_llm():
     return ChatOllama(model="llama3.1:8b", temperature=0)
@@ -41,32 +33,9 @@ def get_llm():
 
 def get_embeddings():
     # Local HuggingFace model — no API key, no quota, no availability issues.
-    # Downloads ~90MB once, then cached locally.
-    # WHY not Google embeddings: models/embedding-001 and text-embedding-004
-    # both return 404 via the v1beta API endpoint used by langchain-google-genai.
+ 
     return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-
-# def evaluate_faithfulness(question: str, answer: str, contexts: list[str]) -> float:
-#     # Scores how much the answer is supported by the retrieved chunks.
-#     # RAGAS breaks the answer into individual claims, checks each one
-#     #      against the retrieved passages, returns fraction that are supported.
-#     # RANGE: 0.0 (fully hallucinated) to 1.0 (fully grounded)
-
-#     # KEY FIX: Must set .llm directly on the metric object.
-#     # Passing llm= to evaluate() is IGNORED by RAGAS for these metric objects.
-#     ragas_llm = LangchainLLMWrapper(get_llm())
-#     faithfulness.llm = ragas_llm
-
-#     sample = {
-#         "question": [question],
-#         "answer": [answer],
-#         "contexts": [contexts],
-#         "ground_truth": [""]   # not needed for faithfulness but RAGAS expects the key
-#     }
-#     dataset = Dataset.from_dict(sample)
-#     result = evaluate(dataset, metrics=[faithfulness], run_config=RunConfig(timeout=1200))
-#     return float(result["faithfulness"][0])
 
 def evaluate_faithfulness(question: str, answer: str, contexts: list[str]) -> float:
     ragas_llm = LangchainLLMWrapper(get_llm())
@@ -81,27 +50,7 @@ def evaluate_faithfulness(question: str, answer: str, contexts: list[str]) -> fl
     result = evaluate(dataset, metrics=[metric], run_config=RunConfig(timeout=1200))
     return float(result["faithfulness"][0])
 
-# def evaluate_answer_relevancy(question: str, answer: str, contexts: list[str]) -> float:
-#     # Scores how directly the answer addresses the question asked.
-#     # RAGAS generates a reverse-engineered question from the answer,then measures embedding similarity between that and the original question.
-#     # RANGE: 0.0 (off-topic) to 1.0 (directly on-topic)
 
-
-#     ragas_llm = LangchainLLMWrapper(get_llm())
-#     ragas_emb = LangchainEmbeddingsWrapper(get_embeddings())
-#     answer_relevancy.llm = ragas_llm
-#     answer_relevancy.embeddings = ragas_emb
-
-#     sample = {
-#         "question": [question],
-#         "answer": [answer],
-#         "contexts": [contexts],
-#         "ground_truth": [""]
-#     }
-#     dataset = Dataset.from_dict(sample)
-#     #old
-#     result = evaluate(dataset, metrics=[answer_relevancy], run_config=RunConfig(timeout=1200))
-#     return float(result["answer_relevancy"][0])
 
 def evaluate_answer_relevancy(question: str, answer: str, contexts: list[str]) -> float:
     ragas_llm = LangchainLLMWrapper(get_llm())

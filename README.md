@@ -1,65 +1,88 @@
 # Research Paper Workspace
 
-A shared research paper workspace that lets teams upload, organise, and query research papers using RAG (Retrieval-Augmented Generation). Answers are scored for faithfulness to the source material using RAGAS.
+An AI-powered tool for uploading academic PDFs, asking natural-language questions, and receiving grounded answers scored for faithfulness to the source material.
 
 **Built for ResearchDen Fall 2026 Technical Project**  
-Team: Shruti, Jamal, Talib | Supervisor: Sultanul Ovi
+Team: Shruti, Jamal Hossain, Talib | Supervisor: Sultanul Ovi
+
+---
+
+## What It Does
+
+Upload a research paper, ask a question, and get an answer that is:
+
+- Retrieved from the paper's actual content (not LLM memory)
+- Scored for **Faithfulness** — how grounded the answer is in the source
+- Scored for **Answer Relevancy** — how well it addresses what was asked
 
 ---
 
 ## Features
 
-- Upload a PDF and ask natural language questions about it
-- Answers returned with a faithfulness score (0–1) showing how grounded the answer is in the paper
-- Answer relevancy score showing how well the response addresses the question
-- Shared paper collection visible to all team members
-- BibTeX citation generation from uploaded papers
+- Upload a PDF and ask natural-language questions about it
+- Dense semantic retrieval via ChromaDB vector search
+- Answer generation using a locally hosted LLM (no external API required)
+- RAGAS evaluation: Faithfulness and Answer Relevancy scores on demand
+- Streamlit web interface — no command-line knowledge required
 
 ---
 
 ## Tech Stack
 
-| Layer        | Technology                               |
-| ------------ | ---------------------------------------- |
-| PDF parsing  | PyMuPDF                                  |
-| Embeddings   | sentence-transformers (all-MiniLM-L6-v2) |
-| Vector store | ChromaDB                                 |
-| RAG pipeline | LangChain + FastAPI                      |
-| Evaluation   | RAGAS (faithfulness + answer relevancy)  |
-| Frontend     | Streamlit                                |
-| App database | SQLite                                   |
+| Layer                         | Technology                               |
+| ----------------------------- | ---------------------------------------- |
+| PDF parsing                   | PyMuPDF                                  |
+| Text chunking                 | LangChain RecursiveCharacterTextSplitter |
+| Embeddings                    | sentence-transformers (all-MiniLM-L6-v2) |
+| Vector store                  | ChromaDB                                 |
+| LLM (generation + evaluation) | Ollama — llama3.1:8b (local)             |
+| Evaluation framework          | RAGAS (faithfulness + answer relevancy)  |
+| Frontend                      | Streamlit                                |
 
 ---
 
 ## Project Structure
 
-````
+```
 researchden-paper-workspace/
 ├── app/
-│   ├── main.py              # FastAPI entry point
-│   ├── api/
-│   │   ├── upload.py        # POST /upload — PDF ingestion
-│   │   ├── ask.py           # POST /ask — RAG Q&A
-│   │   └── evaluate.py      # POST /evaluate — RAGAS scoring
+│   ├── main.py                  # App entry point
 │   ├── pipeline/
-│   │   ├── ingest.py        # PyMuPDF text extraction
-│   │   ├── chunk.py         # Text chunking
-│   │   ├── embed.py         # Sentence transformer embeddings
-│   │   └── retrieve.py      # ChromaDB retrieval
-│   ├── evaluation/
-│   │   └── ragas_eval.py    # RAGAS faithfulness + relevancy
-│   └── database/
-│       └── models.py        # SQLite schema
+│   │   ├── __init__.py          # process_pdf + vector_store_payload (Jamal)
+│   │   ├── ingest.py            # PyMuPDF text extraction (Jamal)
+│   │   ├── chunk.py             # Text chunking (Jamal)
+│   │   ├── embed.py             # Sentence transformer embeddings (Jamal)
+│   │   ├── numeric.py           # Numeric content extraction (Jamal)
+│   │   ├── tables.py            # Table extraction (Jamal)
+│   │   ├── retrieve.py          # ChromaDB vector retrieval (Shruti)
+│   │   └── generate.py          # Ollama answer generation (Shruti)
+│   └── evaluation/
+│       └── ragas_eval.py        # RAGAS faithfulness + relevancy (Shruti)
 ├── frontend/
-│   └── streamlit_app.py     # Streamlit UI
+│   └── streamlit_app.py         # Streamlit UI (Shruti)
+├── data/
+│   └── chroma_db/               # Persistent ChromaDB collection
 ├── tests/
-│   └── test_evaluation.py   # RAGAS component tests
+│   └── test_evaluation.py       # RAGAS component tests (Shruti)
 ├── requirements.txt
 └── README.md
+```
+
+---
+
+## Team Contributions
+
+| Contributor   | Component                                                                  |
+| ------------- | -------------------------------------------------------------------------- |
+| Shruti        | Retrieval, generation, RAGAS evaluation, Streamlit UI, technical report    |
+| Jamal Hossain | PDF ingestion pipeline (ingest, chunk, embed, numeric, tables)             |
+| Talib         | Hybrid retrieval design — BM25 + RRF (proposed, PR #3, not yet integrated) |
 
 ---
 
 ## How to Run Locally
+
+**Prerequisites:** [Ollama](https://ollama.com) installed and running with `llama3.1:8b` pulled.
 
 ```bash
 # 1. Clone the repo
@@ -68,31 +91,36 @@ cd researchden-paper-workspace
 
 # 2. Create and activate virtual environment
 python -m venv research
-research\Scripts\activate   # Windows
+research\Scripts\activate        # Windows
+# source research/bin/activate   # Mac/Linux
 
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Start the FastAPI backend
-TBC
+# 4. Pull the LLM (first time only)
+ollama pull llama3.1:8b
 
-# 5. In a new terminal, start the Streamlit frontend
-TBC
-````
+# 5. Start the Streamlit app
+python -m streamlit run frontend/streamlit_app.py
+```
+
+Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 ---
 
-## Evaluation Component (RAGAS)
+## Evaluation Results
 
-The faithfulness evaluation component scores every answer the system produces:
+Evaluated on the question: _"What is RAGAS and what does it evaluate?"_
 
-- **Faithfulness (0–1):** fraction of answer claims supported by retrieved source chunks
-- **Answer Relevancy (0–1):** how well the answer addresses the question asked
+| Metric           | Score |
+| ---------------- | ----- |
+| Faithfulness     | 0.62  |
+| Answer Relevancy | 0.78  |
 
-Both scores are returned via `POST /evaluate` and displayed in the UI alongside every answer.
+Scores are stable across runs with `temperature=0` on both the generation and judge LLMs.
 
 ---
 
 ## Status
 
-🚧 In active development — submission deadline 20 October 2026
+✅ Submitted — ResearchDen Fall 2026 Internship, October 2026
