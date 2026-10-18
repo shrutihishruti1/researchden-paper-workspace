@@ -1,67 +1,112 @@
-# app/pipeline/embed.py
-# PRIMARY OWNER: Shruti
-# STATUS: Active — core pipeline component
+from __future__ import annotations
+import math
+import re
+from collections.abc import Callable
+from .chunk import token_count
 
-import chromadb
-from sentence_transformers import SentenceTransformer
-
-def embed_and_store(chunks: list[str], collection_name: str = "research_papers") -> chromadb.Collection:
-    """
-    Converts text chunks into vector embeddings and stores them in ChromaDB.
-
-    Args:
-        chunks:          List of text strings from chunk_text()
-        collection_name: Name of the ChromaDB collection (default: "research_papers")
-    Returns:
-        ChromaDB Collection object — ready for retrieval queries
-    """
-
-    # Load the sentence-transformer embedding model
-
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    # Convert every chunk into a vector embedding
-
-    embeddings = model.encode(chunks, show_progress_bar=True)
-
-    # Create a persistent ChromaDB client
-
-    client = chromadb.PersistentClient(path="data/chroma_db")
-
-    # Create or retrieve a named collection inside ChromaDB
-  
-    collection = client.get_or_create_collection(name=collection_name)
-
-    # Build unique IDs for each chunk
- 
-    ids = [f"chunk_{i}" for i in range(len(chunks))]
-
-    # Add chunks + embeddings into the collection
-   
-    collection.add(
-        ids=ids,
-        embeddings=embeddings.tolist(),
-        documents=chunks
-    )
-
-    return collection
+MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
 
 
-if __name__ == "__main__":
-    from app.pipeline.ingest import ingest_pdf
-    from app.pipeline.chunk import chunk_text
+class EmbeddingError(RuntimeError):
+    """Loading or encoding failed, or the backend violated the output contract."""
 
-    file_path = "data/Es et al. - 2025 - Ragas Automated Evaluation of Retrieval Augmented Generation.pdf"
 
-    print("Step 1: Ingesting PDF...")
-    full_text = ingest_pdf(file_path)
+class EmbeddingService:
+    def __init__(
+        self,
+        *,
+        batch_size: int = 32,
+        device: str = 'cpu',
+        model=None,
+        loader: Callable | None = None,
+        revision: str | None = None,
+    ):
+        if batch_size <= 0:
+            raise ValueError('batch_size must be positive')
+        self.batch_size, self.device = batch_size, device
+        self._model, self._loader, self.revision = model, loader, revision
 
-    print("Step 2: Chunking text...")
-    chunks = chunk_text(full_text)
-    print(f"  → {len(chunks)} chunks ready")
+    @property
+    def model(self):
+        if self._model is None:
+            try:
+                if self._loader:
+                    self._model = self._loader()
+                else:
+                    from sentence_transformers import SentenceTransformer
 
-    print("Step 3: Embedding and storing in ChromaDB...")
-    collection = embed_and_store(chunks)
+                    self._model = SentenceTransformer(MODEL_NAME, device=self.device, revision=self.revision)
+            except Exception as exc:
+                raise EmbeddingError(f'Unable to load {MODEL_NAME}; check model cache/network: {exc}') from exc
+        return self._model
 
-    print(f"\n✅ Done. ChromaDB now holds {collection.count()} embedded chunks.")
-    print("Stored at: data/chroma_db/")
+    @property
+    def tokenizer(self):
+        return self.model.tokenizer
+
+    @property
+    def token_limit(self) -> int:
+        limit = min(int(self.model.max_seq_length), int(self.tokenizer.model_max_length), 256)
+        if limit <= 0:
+            raise EmbeddingError('Model has no usable token limit')
+        return limit
+
+    def info(self) -> dict:
+        try:
+            resolved = getattr(self.model[0].auto_model.config, '_commit_hash', None)
+        except (TypeError, AttributeError, KeyError):
+            resolved = None
+        if not resolved:
+            # Some Transformers releases omit _commit_hash while retaining
+            # the actual snapshot path in tokenizer initialization metadata.
+            for value in getattr(self.tokenizer, 'init_kwargs', {}).values():
+                if isinstance(value, str):
+                    match = re.search(r'snapshots[/\\]+([0-9a-f]{40})(?:[/\\]|$)', value)
+                    if match:
+                        resolved = match[1]
+                        break
+        return {
+            'name': MODEL_NAME,
+            'revision': resolved,
+            'requested_revision': self.revision,
+            'dimension': 384,
+            'normalize_embeddings': True,
+            'effective_token_limit': self.token_limit,
+        }
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        for text in texts:
+            if token_count(self.tokenizer, text) > self.token_limit:
+                raise EmbeddingError('Input exceeds model token limit; truncation is forbidden.')
+        try:
+            raw = self.model.encode(
+                texts,
+                batch_size=self.batch_size,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+                prompt='',
+            )
+            if len(raw) != len(texts):
+                raise EmbeddingError('Backend returned an incorrect number of vectors')
+            result = []
+            for vector in raw:
+                values = [float(v) for v in vector]
+                if len(values) != 384 or not all(math.isfinite(v) for v in values):
+                    raise EmbeddingError('Expected finite 384-dimensional embeddings')
+                norm = math.sqrt(sum(v * v for v in values))
+                if not norm or abs(norm - 1) > 0.001:
+                    raise EmbeddingError('Backend returned a non-normalized embedding')
+                result.append(values)
+            return result
+        except EmbeddingError:
+            raise
+        except Exception as exc:
+            raise EmbeddingError(f'Embedding failed: {exc}') from exc
+
+    def embed_query(self, text: str) -> list[float]:
+        if not text.strip():
+            raise ValueError('Query must contain text')
+        return self.embed([text])[0]
